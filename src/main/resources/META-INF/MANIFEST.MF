@@ -1,8 +1,8 @@
 Automatic-Module-Name: org.tamacat.smtpd
 Implementation-Title: tamacat-blackhole-smtpd
-Implementation-Version: 1.0-b20250402
+Implementation-Version: 1.1-b20250407
 Bundle-ManifestVersion: 2
 Bundle-SymbolicName: org.tamacat.smtpd
 Bundle-Name: tamacat-blackhole-smtpd
 Bundle-Vendor: tamacat.org
-Bundle-Version: 1.0
+Bundle-Version: 1.1
