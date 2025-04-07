@@ -1,4 +1,5 @@
-FROM adoptopenjdk/openjdk8:alpine-jre
+FROM amazoncorretto:8-alpine3.21
+#FROM adoptopenjdk/openjdk8:alpine-jre
 
 RUN apk update && apk upgrade && apk add --no-cache
 
