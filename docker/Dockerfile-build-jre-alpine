@@ -33,9 +33,9 @@ RUN apk update && apk upgrade && apk add --no-cache \
 RUN mkdir -p /usr/local/tamacat-blackhole-smtpd/lib
 WORKDIR /usr/local/tamacat-blackhole-smtpd
 
-COPY --from=BUILD /build/tamacat-blackhole-smtpd/target/tamacat-blackhole-smtpd-1.0-jar-with-dependencies.jar /usr/local/tamacat-blackhole-smtpd/lib/tamacat-blackhole-smtpd-1.0-jar-with-dependencies.jar
+COPY --from=BUILD /build/tamacat-blackhole-smtpd/target/tamacat-blackhole-smtpd-1.1-jar-with-dependencies.jar /usr/local/tamacat-blackhole-smtpd/lib/tamacat-blackhole-smtpd-1.1-jar-with-dependencies.jar
 
-ENV CLASSPATH=/usr/local/tamacat-blackhole-smtpd/lib/tamacat-blackhole-smtpd-1.0-jar-with-dependencies.jar
+ENV CLASSPATH=/usr/local/tamacat-blackhole-smtpd/lib/tamacat-blackhole-smtpd-1.1-jar-with-dependencies.jar
 
 ENV BIND_PORT=25
 
@@ -43,4 +43,4 @@ EXPOSE ${BIND_PORT}
 
 USER 1001
 
-CMD ["java", "-jar" ,"tamacat-blackhole-smtpd-1.0-jar-with-dependencies.jar"]
+CMD ["java", "-jar" ,"tamacat-blackhole-smtpd-1.1-jar-with-dependencies.jar"]

@@ -5,7 +5,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.tamacat.smtpd</groupId>
   <artifactId>tamacat-blackhole-smtpd</artifactId>
-  <version>1.0-b20250402</version>
+  <version>1.1-b20250407</version>
   <packaging>jar</packaging>
   <name>tamacat-blackhole-smtpd</name>
   <url>https://tamacat.org/</url>
@@ -28,35 +28,9 @@
     <maven.compiler.source>8</maven.compiler.source>
     <maven.compiler.target>8</maven.compiler.target>
     <maven.build.timestamp.format>yyyy-MM-dd HH:mm:ssZ</maven.build.timestamp.format>
-    <tamacat.version>1.5</tamacat.version>
   </properties>
 
   <dependencies>
-    <dependency>
-      <groupId>org.tamacat</groupId>
-      <artifactId>tamacat-core</artifactId>
-      <version>${tamacat.version}</version>
-    </dependency>
-    
-    <dependency>
-      <groupId>org.tamacat</groupId>
-      <artifactId>tamacat-httpd</artifactId>
-      <version>1.5.2-tc9.0.102</version>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.httpcomponents</groupId>
-      <artifactId>httpcore</artifactId>
-      <version>4.4.16</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.httpcomponents</groupId>
-      <artifactId>httpclient</artifactId>
-      <version>4.5.14</version>
-      <scope>test</scope>
-    </dependency>
-    
     <dependency>
       <groupId>org.apache.james</groupId>
       <artifactId>mock-smtp-server</artifactId>
@@ -97,7 +71,7 @@
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-io</artifactId>
-      <version>10.0.25</version>
+      <version>12.0.19</version>
     </dependency>
     
     <dependency>
@@ -109,7 +83,7 @@
     <dependency>
       <groupId>org.eclipse.jetty</groupId>
       <artifactId>jetty-server</artifactId>
-      <version>10.0.25</version>
+      <version>12.0.19</version>
     </dependency>
 
     <dependency>
@@ -117,7 +91,12 @@
       <artifactId>subethasmtp</artifactId>
       <version>3.1.7</version>
     </dependency>
-    
+    <dependency>
+      <groupId>org.apache.james</groupId>
+      <artifactId>apache-mime4j-dom</artifactId>
+      <version>0.8.12</version>
+    </dependency>
+	
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
@@ -213,7 +192,7 @@
         <artifactId>maven-assembly-plugin</artifactId>
         <version>3.3.0</version>
         <configuration>
-          <finalName>tamacat-blackhole-smtpd-1.0</finalName>
+          <finalName>tamacat-blackhole-smtpd-1.1</finalName>
           <descriptorRefs>
             <descriptorRef>jar-with-dependencies</descriptorRef>
           </descriptorRefs>
@@ -271,8 +250,8 @@
           <to>
             <image>tamacat/tamacat-blackhole-smtpd</image>
             <tags>
-              <tag>1.0-b20220920</tag>
-              <tag>1.0-latest</tag>
+              <tag>1.1-b20250407</tag>
+              <tag>1.1-latest</tag>
             </tags>
           </to>
           <container>

@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<service-config>
-  <service>
-    <url path="/test/" type="reverse" handler="ReverseHandler">
-      <reverse>http://localhost:8080/test/</reverse>
-    </url>
-  </service>
-</service-config>

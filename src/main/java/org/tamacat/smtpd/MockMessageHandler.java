@@ -32,19 +32,19 @@ import org.apache.james.mock.smtp.server.model.Mail;
 import org.apache.james.mock.smtp.server.model.MockSMTPBehavior;
 import org.apache.james.mock.smtp.server.model.MockSMTPBehaviorInformation;
 import org.apache.james.mock.smtp.server.model.SMTPCommand;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.james.mock.smtp.server.model.Response.SMTPStatusCode;
 import org.subethamail.smtp.MessageHandler;
 import org.subethamail.smtp.RejectException;
 import org.subethamail.smtp.TooMuchDataException;
-import org.tamacat.log.Log;
-import org.tamacat.log.LogFactory;
 
 /**
  * https://github.com/apache/james-project/tree/master/server/mailet/mock-smtp-server
  */
 public class MockMessageHandler implements MessageHandler {
 
-	static final Log LOG = LogFactory.getLog(MockMessageHandler.class);
+	static final Logger LOG = LoggerFactory.getLogger(MockMessageHandler.class);
 	
     @FunctionalInterface
     interface Behavior<T> {
