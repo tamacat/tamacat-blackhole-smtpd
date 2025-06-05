@@ -5,7 +5,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.tamacat.smtpd</groupId>
   <artifactId>tamacat-blackhole-smtpd</artifactId>
-  <version>1.2-develop</version>
+  <version>1.2-b20250605</version>
   <packaging>jar</packaging>
   <name>tamacat-blackhole-smtpd</name>
   <url>https://tamacat.org/</url>
