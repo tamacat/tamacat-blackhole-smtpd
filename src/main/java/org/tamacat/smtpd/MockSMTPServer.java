@@ -19,6 +19,7 @@
 package org.tamacat.smtpd;
 
 import org.apache.james.util.Port;
+import org.slf4j.bridge.SLF4JBridgeHandler;
 import org.subethamail.smtp.server.SMTPServer;
 
 /**
@@ -33,6 +34,9 @@ public class MockSMTPServer {
     }
 
     public MockSMTPServer(SMTPBehaviorRepository behaviorRepository, int port) {
+    	SLF4JBridgeHandler.removeHandlersForRootLogger();
+        SLF4JBridgeHandler.install();
+        
         this.server = new SMTPServer(ctx -> new MockMessageHandler(behaviorRepository));
         
         this.server.setPort(port);
