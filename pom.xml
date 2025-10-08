@@ -5,7 +5,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.tamacat.smtpd</groupId>
   <artifactId>tamacat-blackhole-smtpd</artifactId>
-  <version>1.2-b20251006</version>
+  <version>1.2-b20251007</version>
   <packaging>jar</packaging>
   <name>tamacat-blackhole-smtpd</name>
   <url>https://tamacat.org/</url>
@@ -116,7 +116,11 @@
       <artifactId>commons-beanutils</artifactId>
       <version>1.11.0</version>
     </dependency>
-
+	<dependency>
+	  <groupId>org.apache.commons</groupId>
+	  <artifactId>commons-lang3</artifactId>
+	  <version>3.19.0</version>
+	</dependency>
     <dependency>
       <groupId>org.subethamail</groupId>
       <artifactId>subethasmtp</artifactId>
