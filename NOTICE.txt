@@ -1,5 +1,5 @@
 tamacat-blaclhole-smtpd
-Copyright 2020-2022 tamacat.org.
+Copyright 2020-2026 tamacat.org.
 
 This product includes software developed at
 The Apache Software Foundation (http://www.apache.org/).

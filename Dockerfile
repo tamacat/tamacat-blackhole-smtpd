@@ -1,4 +1,4 @@
-FROM amazoncorretto:21-alpine3.22
+FROM amazoncorretto:21-alpine3.23
 
 RUN apk update && apk upgrade && apk add --no-cache
 
