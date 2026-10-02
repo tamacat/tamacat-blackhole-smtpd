@@ -5,7 +5,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.tamacat.smtpd</groupId>
   <artifactId>tamacat-blackhole-smtpd</artifactId>
-  <version>1.2-b20260909</version>
+  <version>1.2-b20261003</version>
   <packaging>jar</packaging>
   <name>tamacat-blackhole-smtpd</name>
   <url>https://tamacat.org/</url>
@@ -24,11 +24,11 @@
   </scm>
 
   <properties>
-    <java.version>21</java.version>
+    <java.version>25</java.version>
     <maven.compiler.source>25</maven.compiler.source>
     <maven.compiler.target>25</maven.compiler.target>
     <maven.build.timestamp.format>yyyy-MM-dd HH:mm:ssZ</maven.build.timestamp.format>
-    <slf4j.version>2.0.19</slf4j.version>
+    <slf4j.version>2.0.20</slf4j.version>
     <jetty.version>12.1.13</jetty.version>
   </properties>
 
@@ -65,12 +65,12 @@
     <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
-      <version>33.7.1-jre</version>
+      <version>33.7.2-jre</version>
     </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
-      <version>2.22.2</version>
+      <version>2.22.3</version>
     </dependency>
 
     <dependency>
@@ -119,7 +119,7 @@
 	<dependency>
 	  <groupId>org.apache.commons</groupId>
 	  <artifactId>commons-lang3</artifactId>
-	  <version>3.20.0</version>
+	  <version>3.21.0</version>
 	</dependency>
     <dependency>
       <groupId>org.subethamail</groupId>
@@ -129,7 +129,7 @@
     <dependency>
       <groupId>org.apache.james</groupId>
       <artifactId>apache-mime4j-dom</artifactId>
-      <version>0.8.14</version>
+      <version>0.8.15</version>
     </dependency>
 	
     <dependency>
@@ -155,7 +155,7 @@
     <dependency>
       <groupId>ch.qos.logback</groupId>
       <artifactId>logback-classic</artifactId>
-      <version>1.6.3</version>
+      <version>1.6.5</version>
     </dependency>
   </dependencies>
 
