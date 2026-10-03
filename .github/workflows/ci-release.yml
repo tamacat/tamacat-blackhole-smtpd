@@ -1,0 +1,198 @@
+# CI/CDパイプライン(通常フロー: push/pull_request、定期スケジュールフロー: schedule)。
+#
+#   lint    : hadolint(警告のみ・非ブロッキング)。scheduleではスキップ。
+#   verify  : 単体テスト → シークレットスキャン → イメージビルド → 脆弱性スキャン(SCA)
+#             → SBOM生成 → スモークテスト(実際にSMTP送信してログを確認)。
+#             検証済みイメージはtarとして次のジョブへ渡す。
+#   publish : セルフレビュー承認(environment: production)→ 検証済みイメージを
+#             そのままDocker Hubへpush → cosign keyless署名 → SBOM添付。
+#             pull_requestでは公開しない。
+#
+# SAST(Javaコード)は codeql-analysis.yml が担当する。
+name: CI / Release
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    # 毎週月曜03:00 UTC。ベースイメージ(Alpine / JDK)の定期再ビルド・再スキャン用。
+    - cron: "0 3 * * 1"
+  workflow_dispatch: {}
+
+env:
+  IMAGE_NAME: tamacat/tamacat-blackhole-smtpd
+  TRIVY_VERSION: "v0.75.0"
+  GITLEAKS_VERSION: "8.30.1"
+
+jobs:
+  lint:
+    name: Lint (advisory)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: hadolint (Dockerfile)
+        uses: hadolint/hadolint-action@v3.5.0
+        continue-on-error: true
+        with:
+          dockerfile: Dockerfile
+
+  verify:
+    name: Verify (test, build, scan, smoke-test)
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.vars.outputs.version }}
+      build_date: ${{ steps.vars.outputs.build_date }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # gitleaks scans the whole history.
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Unit tests (mvn verify)
+        run: mvn -B verify
+
+      - name: Secret scan (gitleaks)
+        run: |
+          curl -sSL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf gitleaks.tar.gz gitleaks
+          rm gitleaks.tar.gz
+          ./gitleaks git --redact --no-banner .
+          rm gitleaks
+
+      - name: Compute version / build date
+        id: vars
+        run: |
+          version="$(sed -n 's:^  <version>\(.*\)</version>$:\1:p' pom.xml | head -1)"
+          test -n "${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "build_date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          # 常に最新のベースイメージ(distroless / JDK)を取得する。scheduleではレイヤー
+          # キャッシュも使わず完全に再ビルドする(push/PRはキャッシュで高速化)。
+          pull: true
+          no-cache: ${{ github.event_name == 'schedule' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:ci
+
+      - name: Install Trivy
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin "${TRIVY_VERSION}"
+
+      - name: Vulnerability scan (Trivy, HIGH/CRITICAL with a fix available)
+        # 修正版が存在するHIGH/CRITICALがあれば失敗させる。例外は .trivyignore に記載する。
+        run: trivy image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL "${IMAGE_NAME}:ci"
+
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          mkdir -p sbom
+          trivy image --format cyclonedx --output sbom/sbom.cyclonedx.json "${IMAGE_NAME}:ci"
+
+      - name: Smoke test (send a mail and check the log)
+        run: |
+          # Podman / Kubernetes と同じく非rootでは1024未満のポートをbindできない条件で
+          # 起動し、javaに付与したCAP_NET_BIND_SERVICEがイメージに残っていることも確認する。
+          docker run -d --name smtpd -p 2525:25 \
+            --sysctl net.ipv4.ip_unprivileged_port_start=1024 "${IMAGE_NAME}:ci"
+          for _ in $(seq 1 30); do
+            docker logs smtpd 2>&1 | grep -q ' start ' && break
+            sleep 1
+          done
+          curl -sS smtp://127.0.0.1:2525 \
+            --mail-from test-from@example.com --mail-rcpt test-to@example.com \
+            --upload-file src/test/resources/mail.txt
+          sleep 1
+          docker logs smtpd 2>&1
+          docker logs smtpd 2>&1 | grep ' mail ' | grep -q 'subject="Test mail"'
+          docker rm -f smtpd
+
+      - name: Save verified image
+        run: docker save "${IMAGE_NAME}:ci" | gzip > image.tar.gz
+
+      - name: Summary
+        run: |
+          {
+            echo "### ${IMAGE_NAME}"
+            echo "- version: ${{ steps.vars.outputs.version }}-b${{ steps.vars.outputs.build_date }}"
+            echo "- image size: $(docker image inspect --format '{{.Size}}' "${IMAGE_NAME}:ci" | numfmt --to=iec)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: image
+          path: image.tar.gz
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sbom-${{ steps.vars.outputs.build_date }}
+          path: sbom/
+
+  publish:
+    # BR: セルフレビュー承認は `environment: production` の必須レビュアー設定で行う
+    # (GitHub側の手動セットアップが必要。README参照)。承認されるまでジョブは開始しない。
+    name: Publish (manual self-review gate)
+    needs: verify
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write # cosign keyless署名(Sigstore OIDC)用
+      contents: read
+    env:
+      VERSION_TAG: ${{ needs.verify.outputs.version }}-b${{ needs.verify.outputs.build_date }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: image
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: sbom-${{ needs.verify.outputs.build_date }}
+          path: sbom
+
+      - uses: sigstore/cosign-installer@v4.1.2
+
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push the verified image
+        # verifyジョブでテスト・スキャン済みのイメージをそのままpushする(再ビルドしない)。
+        id: push
+        run: |
+          set -euo pipefail
+          gunzip -c image.tar.gz | docker load
+          version="${{ needs.verify.outputs.version }}"
+          for tag in "${VERSION_TAG}" "${version}-latest" latest; do
+            docker tag "${IMAGE_NAME}:ci" "${IMAGE_NAME}:${tag}"
+            docker push "${IMAGE_NAME}:${tag}"
+          done
+          digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "${IMAGE_NAME}:${VERSION_TAG}")"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "Pushed ${digest}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Sign (cosign keyless)
+        run: cosign sign --yes "${{ steps.push.outputs.digest }}"
+
+      - name: Attach SBOM (cosign attest)
+        run: cosign attest --yes --type cyclonedx --predicate sbom/sbom.cyclonedx.json "${{ steps.push.outputs.digest }}"
