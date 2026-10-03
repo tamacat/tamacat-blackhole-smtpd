@@ -8,6 +8,13 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    ignore:
+      # The maven image tag carries two versions (Maven and JDK, e.g.
+      # 3.9.16-eclipse-temurin-25), which Dependabot compares wrongly and
+      # "updates" to an older JDK (3-eclipse-temurin-24). The JDK major is
+      # pinned on purpose (pom.xml release 25); patched images of the same tag
+      # are picked up by the weekly no-cache rebuild in ci-release.yml.
+      - dependency-name: maven
   - package-ecosystem: maven
     directory: /
     schedule:
