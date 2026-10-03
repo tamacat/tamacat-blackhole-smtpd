@@ -13,7 +13,7 @@
 #   docker build -t tamacat/tamacat-blackhole-smtpd .
 #   docker run --rm -d -p 1025:25 tamacat/tamacat-blackhole-smtpd
 
-FROM maven:3.9.16-eclipse-temurin-25 AS build
+FROM maven:3-eclipse-temurin-24 AS build
 
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends libcap2-bin \
