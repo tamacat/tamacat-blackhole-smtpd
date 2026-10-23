@@ -52,7 +52,8 @@ public class SMTPd implements AutoCloseable {
 
 	/** Accepts connections until {@link #close()} is called. */
 	public void serve() throws IOException {
-		Log.info("start", "version", version(), "address", config.bindAddress(), "port", getPort(),
+		Log.info("start", "version", version(), "java", Runtime.version(),
+				"address", config.bindAddress(), "port", getPort(),
 				"hostname", config.hostname(), "max-message-size", config.maxMessageSize(),
 				"max-connections", config.maxConnections());
 		while (!serverSocket.isClosed()) {
