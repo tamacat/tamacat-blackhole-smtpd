@@ -132,6 +132,7 @@ jobs:
           {
             echo "### ${IMAGE_NAME}"
             echo "- version: ${{ steps.vars.outputs.version }}-b${{ steps.vars.outputs.build_date }}"
+            echo "- java: $(docker run --rm --entrypoint /opt/jre/bin/java "${IMAGE_NAME}:ci" --version | sed -n 2p)"
             echo "- image size: $(docker image inspect --format '{{.Size}}' "${IMAGE_NAME}:ci" | numfmt --to=iec)"
           } >> "$GITHUB_STEP_SUMMARY"
 

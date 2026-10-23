@@ -12,7 +12,7 @@ One line per event on stdout (logfmt style, UTF-8). Each accepted message is
 logged as a `mail` event; the message body is discarded.
 
 ```
-2026-10-03T03:00:00.123Z INFO  start version=2.0 address=0.0.0.0 port=25 hostname=smtpd max-message-size=10485760 max-connections=100
+2026-10-03T03:00:00.123Z INFO  start version=2.0 java=25.0.4.1+1-LTS address=0.0.0.0 port=25 hostname=smtpd max-message-size=10485760 max-connections=100
 2026-10-03T03:00:05.456Z INFO  mail id=3f2a9c1e.1 remote=172.17.0.1:50412 helo=client.example from=from@example.com to=to@example.com size=342 subject="テスト mail" message-id=<1@example.com>
 ```
 
