@@ -16,8 +16,30 @@
 FROM maven:3.9.16-eclipse-temurin-25 AS build
 
 RUN apt-get update \
-	&& apt-get install -y --no-install-recommends libcap2-bin \
+	&& apt-get install -y --no-install-recommends ca-certificates curl libcap2-bin \
 	&& rm -rf /var/lib/apt/lists/*
+
+# The runtime is jlink'ed from a Temurin JDK downloaded from Adoptium rather
+# than from the JDK in this image: the official Docker images pick up a new
+# Java security release days to weeks later. CI passes the latest Temurin 25
+# GA release name (see ci-release.yml); the default is for local builds.
+ARG JDK_RELEASE=jdk-25.0.5+8
+ARG TARGETARCH
+RUN set -eu; \
+	case "${TARGETARCH:-amd64}" in \
+		amd64) arch=x64 ;; \
+		arm64) arch=aarch64 ;; \
+		*) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+	esac; \
+	version="${JDK_RELEASE#jdk-}"; \
+	file="OpenJDK25U-jdk_${arch}_linux_hotspot_$(echo "${version}" | tr + _).tar.gz"; \
+	url="https://github.com/adoptium/temurin25-binaries/releases/download/$(echo "${JDK_RELEASE}" | sed 's/+/%2B/')/${file}"; \
+	curl -fsSL -o "/tmp/${file}" "${url}"; \
+	curl -fsSL -o "/tmp/${file}.sha256.txt" "${url}.sha256.txt"; \
+	(cd /tmp && sha256sum -c "${file}.sha256.txt"); \
+	mkdir -p /opt/jdk; \
+	tar -xzf "/tmp/${file}" -C /opt/jdk --strip-components=1; \
+	rm -f /tmp/OpenJDK25U-*
 
 WORKDIR /build
 COPY pom.xml ./
@@ -25,12 +47,16 @@ COPY src ./src
 # Tests run in CI (mvn verify) before the image build; skip them here.
 RUN --mount=type=cache,target=/root/.m2 mvn -B -q package -DskipTests
 
-RUN jlink \
+# jlink drops IMPLEMENTOR etc. from the release file; without them scanners
+# (e.g. Docker Scout) cannot tell Temurin from Oracle Java and report "oracle/jre".
+RUN . /opt/jdk/release; \
+	/opt/jdk/bin/jlink \
 		--add-modules java.base,jdk.charsets \
 		--strip-debug \
 		--no-man-pages \
 		--no-header-files \
 		--compress=zip-6 \
+		--release-info "add:IMPLEMENTOR=\"${IMPLEMENTOR}\":IMPLEMENTOR_VERSION=\"${IMPLEMENTOR_VERSION}\":JAVA_RUNTIME_VERSION=\"${JAVA_RUNTIME_VERSION}\"" \
 		--output /opt/jre
 
 # Let the non-root user bind port 25. Docker (20.10+) allows that anyway, but
