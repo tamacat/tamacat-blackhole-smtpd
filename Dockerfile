@@ -59,6 +59,25 @@ RUN . /opt/jdk/release; \
 		--release-info "add:IMPLEMENTOR=\"${IMPLEMENTOR}\":IMPLEMENTOR_VERSION=\"${IMPLEMENTOR_VERSION}\":JAVA_RUNTIME_VERSION=\"${JAVA_RUNTIME_VERSION}\"" \
 		--output /opt/jre
 
+# Distrust the roots of the compromised eMudhra intermediate CAs
+# (CVE-2026-91403, CVE-2026-114820; https://openjdk.org/emudhra) until a
+# Temurin release that removes them is out. Matched by subject CN because
+# Temurin's cacerts uses different aliases from the OpenJDK advisory
+# ("cn_emsign_root_ca__g1,..." instead of "emsignrootcag1 [jdk]"); roots that
+# are not present are simply skipped. This server never makes TLS connections.
+RUN set -eu; \
+	cacerts=/opt/jre/lib/security/cacerts; \
+	distrusted='^Owner: CN=(emSign Root CA - G1|emSign Root CA - G2|emSign ECC Root CA - G3|AAA Certificate Services),'; \
+	list() { \
+		/opt/jdk/bin/keytool -list -v -keystore "${cacerts}" -storepass changeit \
+			| awk -v re="${distrusted}" '/^Alias name: /{alias=substr($0, 13)} $0 ~ re {print alias}'; \
+	}; \
+	list | while IFS= read -r alias; do \
+		echo "removing: ${alias}"; \
+		/opt/jdk/bin/keytool -delete -keystore "${cacerts}" -storepass changeit -alias "${alias}"; \
+	done; \
+	test -z "$(list)"
+
 # Let the non-root user bind port 25. Docker (20.10+) allows that anyway, but
 # Podman and Kubernetes do not, so grant CAP_NET_BIND_SERVICE to java itself
 # (the final stage has no shell, so it is set here and kept by COPY).
