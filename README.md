@@ -75,36 +75,28 @@ java -jar target/tamacat-blackhole-smtpd.jar 1025
 
 ### Docker build
 
-The multi-stage `Dockerfile` builds the jar and a minimal jlink runtime
-(`java.base` + `jdk.charsets`); no prior `mvn package` is needed. The runtime
-only needs glibc and zlib, so the final image is
-[distroless](https://github.com/GoogleContainerTools/distroless)
-`base-nossl-debian13:nonroot` plus Debian's `zlib1g` — no OpenSSL, no shell,
-no package manager — and runs as uid 65532 (`java` has
+The multi-stage `Dockerfile` builds the jar (no prior `mvn package` is
+needed) and runs it on the official
+[Amazon Corretto](https://aws.amazon.com/corretto/) image
+`amazoncorretto:25-alpine3.24`, as uid 65532 (`java` has
 `CAP_NET_BIND_SERVICE` to listen on port 25).
 
-The runtime is jlink'ed from the [Amazon Corretto](https://aws.amazon.com/corretto/)
-JDK package `java-25-amazon-corretto-jdk` of Corretto's apt repository
-(verified against the repository signed with Corretto's GPG release key),
-not from the JDK in the official Docker images, which pick up Java security
-releases days to weeks later. It is installed at the package's own path
-(`/usr/lib/jvm/java-25-amazon-corretto`) and registered in
-`/var/lib/dpkg/status.d` with the md5sums of the files actually present, so
-vulnerability scanners attribute it to Amazon Corretto rather than reporting
-an unowned `oracle/jre` binary. CI always passes the latest Corretto 25
-version; for a local build, pass it yourself (the default is pinned in the
-`Dockerfile`):
+Java is installed there as the apk package `amazon-corretto-25`, so
+vulnerability scanners such as Amazon Inspector judge it with Corretto's
+advisories. (A jlink'ed runtime that belongs to no package is reported as
+`oracle/jre` and matched against Oracle Java's affected versions.)
+`apk upgrade` picks up Alpine fixes and new Corretto releases from
+apk.corretto.aws before the image tag is refreshed; CI passes the latest
+Corretto version as `CORRETTO_VERSION` so that a new release invalidates the
+cached layer.
 
 ```sh
 docker build -t tamacat/tamacat-blackhole-smtpd .
-docker build --build-arg CORRETTO_VERSION=25.0.5.0.9 -t tamacat/tamacat-blackhole-smtpd .
 ```
 
 The roots of the compromised eMudhra CAs (CVE-2026-91403, CVE-2026-114820,
 https://openjdk.org/emudhra) are removed from the runtime's `cacerts`.
 
-Note: Trivy does not detect a jlink'ed runtime, so Java CVEs never fail the
-CI scan gate; staying on the latest Corretto release is what covers them.
 When a Java security release is out (quarterly, the third Tuesday of
 January / April / July / October), run the workflow manually to publish
 without waiting for the weekly build.
