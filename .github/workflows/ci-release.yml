@@ -78,16 +78,17 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "build_date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve latest Temurin 25 GA
-        # Java本体はDocker公式イメージ経由ではなくAdoptiumから直接取得する
+      - name: Resolve latest Amazon Corretto 25
+        # Java本体はDocker公式イメージ経由ではなくcorretto.awsから直接取得する
         # (公式イメージはJavaのセキュリティリリースへの追従が数日〜数週間遅れるため)。
-        # リリース名が変わるとビルド引数が変わり、jlinkレイヤーのキャッシュも無効になる。
+        # 最新版URLのリダイレクト先からバージョンを取り出す。バージョンが変わると
+        # ビルド引数が変わり、jlinkレイヤーのキャッシュも無効になる。
         id: jdk
         run: |
-          release="$(curl -fsSL 'https://api.adoptium.net/v3/assets/feature_releases/25/ga?image_type=jdk&os=linux&architecture=x64&vendor=eclipse&page_size=1&sort_order=DESC' \
-            | jq -r '.[0].release_name')"
-          echo "${release}" | grep -Eq '^jdk-25[0-9.]*\+[0-9]+$'
-          echo "release=${release}" >> "$GITHUB_OUTPUT"
+          location="$(curl -fsS -o /dev/null -w '%{redirect_url}' https://corretto.aws/downloads/latest/amazon-corretto-25-x64-linux-jdk.tar.gz)"
+          version="$(echo "${location}" | sed -n 's:.*/resources/\([0-9.]*\)/amazon-corretto-.*:\1:p')"
+          echo "${version}" | grep -Eq '^25(\.[0-9]+)+$'
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v4
 
@@ -95,8 +96,8 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          build-args: JDK_RELEASE=${{ steps.jdk.outputs.release }}
-          # 常に最新のベースイメージ(distroless)とTemurin JDKを取得する。scheduleでは
+          build-args: CORRETTO_VERSION=${{ steps.jdk.outputs.version }}
+          # 常に最新のベースイメージ(distroless)とCorretto JDKを取得する。scheduleでは
           # レイヤーキャッシュも使わず完全に再ビルドする(push/PRはキャッシュで高速化)。
           pull: true
           no-cache: ${{ github.event_name == 'schedule' }}

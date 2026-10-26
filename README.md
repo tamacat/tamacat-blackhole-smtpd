@@ -77,24 +77,29 @@ java -jar target/tamacat-blackhole-smtpd.jar 1025
 
 The multi-stage `Dockerfile` builds the jar and a minimal jlink runtime
 (`java.base` + `jdk.charsets`); no prior `mvn package` is needed. The runtime
-only needs glibc, so the final image is
+only needs glibc and zlib, so the final image is
 [distroless](https://github.com/GoogleContainerTools/distroless)
-`base-nossl-debian13:nonroot` — no OpenSSL, no shell, no package manager —
-and runs as uid 65532 (`java` has `CAP_NET_BIND_SERVICE` to listen on port 25).
+`base-nossl-debian13:nonroot` plus Debian's `zlib1g` — no OpenSSL, no shell,
+no package manager — and runs as uid 65532 (`java` has
+`CAP_NET_BIND_SERVICE` to listen on port 25).
 
-The runtime is jlink'ed from an Eclipse Temurin JDK downloaded from Adoptium
-(checksum-verified), not from the JDK in the official Docker images, which
-pick up Java security releases days to weeks later. CI always passes the
-latest Temurin 25 GA release; for a local build, pass it yourself (the
-default is pinned in the `Dockerfile`):
+The runtime is jlink'ed from an [Amazon Corretto](https://aws.amazon.com/corretto/)
+JDK downloaded from corretto.aws (verified with Corretto's GPG release key),
+not from the JDK in the official Docker images, which pick up Java security
+releases days to weeks later. CI always passes the latest Corretto 25
+version; for a local build, pass it yourself (the default is pinned in the
+`Dockerfile`):
 
 ```sh
 docker build -t tamacat/tamacat-blackhole-smtpd .
-docker build --build-arg JDK_RELEASE=jdk-25.0.5+8 -t tamacat/tamacat-blackhole-smtpd .
+docker build --build-arg CORRETTO_VERSION=25.0.5.0.9 -t tamacat/tamacat-blackhole-smtpd .
 ```
 
+The roots of the compromised eMudhra CAs (CVE-2026-91403, CVE-2026-114820,
+https://openjdk.org/emudhra) are removed from the runtime's `cacerts`.
+
 Note: Trivy does not detect a jlink'ed runtime, so Java CVEs never fail the
-CI scan gate; staying on the latest Temurin release is what covers them.
+CI scan gate; staying on the latest Corretto release is what covers them.
 When a Java security release is out (quarterly, the third Tuesday of
 January / April / July / October), run the workflow manually to publish
 without waiting for the weekly build.
