@@ -83,10 +83,15 @@ only needs glibc and zlib, so the final image is
 no package manager — and runs as uid 65532 (`java` has
 `CAP_NET_BIND_SERVICE` to listen on port 25).
 
-The runtime is jlink'ed from an [Amazon Corretto](https://aws.amazon.com/corretto/)
-JDK downloaded from corretto.aws (verified with Corretto's GPG release key),
+The runtime is jlink'ed from the [Amazon Corretto](https://aws.amazon.com/corretto/)
+JDK package `java-25-amazon-corretto-jdk` of Corretto's apt repository
+(verified against the repository signed with Corretto's GPG release key),
 not from the JDK in the official Docker images, which pick up Java security
-releases days to weeks later. CI always passes the latest Corretto 25
+releases days to weeks later. It is installed at the package's own path
+(`/usr/lib/jvm/java-25-amazon-corretto`) and registered in
+`/var/lib/dpkg/status.d` with the md5sums of the files actually present, so
+vulnerability scanners attribute it to Amazon Corretto rather than reporting
+an unowned `oracle/jre` binary. CI always passes the latest Corretto 25
 version; for a local build, pass it yourself (the default is pinned in the
 `Dockerfile`):
 
