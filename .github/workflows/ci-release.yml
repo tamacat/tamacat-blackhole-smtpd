@@ -79,10 +79,10 @@ jobs:
           echo "build_date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
 
       - name: Resolve latest Amazon Corretto 25
-        # Java本体はDocker公式イメージ経由ではなくcorretto.awsから直接取得する
-        # (公式イメージはJavaのセキュリティリリースへの追従が数日〜数週間遅れるため)。
-        # 最新版URLのリダイレクト先からバージョンを取り出す。バージョンが変わると
-        # ビルド引数が変わり、jlinkレイヤーのキャッシュも無効になる。
+        # 最新のCorretto 25のバージョンを、最新版URLのリダイレクト先から取り出す。
+        # Dockerfileの `apk upgrade` 層のキャッシュキーとして渡すので、新しいCorretto
+        # が出ると(公式イメージの更新を待たずに)その層が再実行され、apk.corretto.aws
+        # から新しいCorrettoが入る。
         id: jdk
         run: |
           location="$(curl -fsS -o /dev/null -w '%{redirect_url}' https://corretto.aws/downloads/latest/amazon-corretto-25-x64-linux-jdk.tar.gz)"
@@ -97,7 +97,7 @@ jobs:
         with:
           context: .
           build-args: CORRETTO_VERSION=${{ steps.jdk.outputs.version }}
-          # 常に最新のベースイメージ(distroless)とCorretto JDKを取得する。scheduleでは
+          # 常に最新のベースイメージ(amazoncorretto)を取得する。scheduleでは
           # レイヤーキャッシュも使わず完全に再ビルドする(push/PRはキャッシュで高速化)。
           pull: true
           no-cache: ${{ github.event_name == 'schedule' }}
@@ -145,7 +145,7 @@ jobs:
           {
             echo "### ${IMAGE_NAME}"
             echo "- version: ${{ steps.vars.outputs.version }}-b${{ steps.vars.outputs.build_date }}"
-            echo "- java: $(docker run --rm --entrypoint /usr/lib/jvm/java-25-amazon-corretto/bin/java "${IMAGE_NAME}:ci" --version | sed -n 2p)"
+            echo "- java: $(docker run --rm --entrypoint java "${IMAGE_NAME}:ci" --version | sed -n 2p)"
             echo "- image size: $(docker image inspect --format '{{.Size}}' "${IMAGE_NAME}:ci" | numfmt --to=iec)"
           } >> "$GITHUB_STEP_SUMMARY"
 
