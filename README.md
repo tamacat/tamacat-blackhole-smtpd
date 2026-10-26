@@ -82,9 +82,22 @@ only needs glibc, so the final image is
 `base-nossl-debian13:nonroot` — no OpenSSL, no shell, no package manager —
 and runs as uid 65532 (`java` has `CAP_NET_BIND_SERVICE` to listen on port 25).
 
+The runtime is jlink'ed from an Eclipse Temurin JDK downloaded from Adoptium
+(checksum-verified), not from the JDK in the official Docker images, which
+pick up Java security releases days to weeks later. CI always passes the
+latest Temurin 25 GA release; for a local build, pass it yourself (the
+default is pinned in the `Dockerfile`):
+
 ```sh
 docker build -t tamacat/tamacat-blackhole-smtpd .
+docker build --build-arg JDK_RELEASE=jdk-25.0.5+8 -t tamacat/tamacat-blackhole-smtpd .
 ```
+
+Note: Trivy does not detect a jlink'ed runtime, so Java CVEs never fail the
+CI scan gate; staying on the latest Temurin release is what covers them.
+When a Java security release is out (quarterly, the third Tuesday of
+January / April / July / October), run the workflow manually to publish
+without waiting for the weekly build.
 
 ## CI / Release (GitHub Actions)
 
