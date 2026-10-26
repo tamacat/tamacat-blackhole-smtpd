@@ -1,0 +1,4 @@
+# False positives (gitleaks fingerprints: <commit>:<file>:<rule>:<line>).
+# Corretto GPG release *public* key fingerprint, not a secret
+# (the ARG was renamed to CORRETTO_SIGNER_FINGERPRINT afterwards).
+b84373e3b72a9bcd2abd0744437072437fb1a64a:Dockerfile:generic-api-key:27

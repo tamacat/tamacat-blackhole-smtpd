@@ -15,7 +15,9 @@
 
 FROM maven:3.9.16-eclipse-temurin-25 AS build
 
-RUN apt-get update 	&& apt-get install -y --no-install-recommends ca-certificates curl gnupg libcap2-bin 	&& rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends ca-certificates curl gnupg libcap2-bin \
+	&& rm -rf /var/lib/apt/lists/*
 
 # The runtime is jlink'ed from an Amazon Corretto JDK downloaded from
 # corretto.aws rather than from the JDK in this image: the official Docker
@@ -24,9 +26,27 @@ RUN apt-get update 	&& apt-get install -y --no-install-recommends ca-certificate
 # local builds. The archive is verified with Corretto's GPG release key
 # (fingerprint pinned below).
 ARG CORRETTO_VERSION=25.0.5.0.9
-ARG CORRETTO_KEY_FINGERPRINT=6DC3636DAE534049C8B94623A122542AB04F24E3
+ARG CORRETTO_SIGNER_FINGERPRINT=6DC3636DAE534049C8B94623A122542AB04F24E3
 ARG TARGETARCH
-RUN set -eu; 	case "${TARGETARCH:-amd64}" in 		amd64) arch=x64 ;; 		arm64) arch=aarch64 ;; 		*) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; 	esac; 	file="amazon-corretto-${CORRETTO_VERSION}-linux-${arch}.tar.gz"; 	url="https://corretto.aws/downloads/resources/${CORRETTO_VERSION}/${file}"; 	cd /tmp; 	curl -fsSL -o "${file}" "${url}"; 	curl -fsSL -o "${file}.sig" "${url}.sig"; 	curl -fsSL -o corretto.key https://apt.corretto.aws/corretto.key; 	export GNUPGHOME="$(mktemp -d)"; 	gpg --batch --quiet --import corretto.key; 	gpg --batch --with-colons --fingerprint | grep -q "^fpr:::::::::${CORRETTO_KEY_FINGERPRINT}:"; 	gpg --batch --verify "${file}.sig" "${file}"; 	mkdir -p /opt/jdk; 	tar -xzf "${file}" -C /opt/jdk --strip-components=1; 	rm -rf "${GNUPGHOME}" "${file}" "${file}.sig" corretto.key
+RUN set -eu; \
+	case "${TARGETARCH:-amd64}" in \
+		amd64) arch=x64 ;; \
+		arm64) arch=aarch64 ;; \
+		*) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+	esac; \
+	file="amazon-corretto-${CORRETTO_VERSION}-linux-${arch}.tar.gz"; \
+	url="https://corretto.aws/downloads/resources/${CORRETTO_VERSION}/${file}"; \
+	cd /tmp; \
+	curl -fsSL -o "${file}" "${url}"; \
+	curl -fsSL -o "${file}.sig" "${url}.sig"; \
+	curl -fsSL -o corretto.key https://apt.corretto.aws/corretto.key; \
+	export GNUPGHOME="$(mktemp -d)"; \
+	gpg --batch --quiet --import corretto.key; \
+	gpg --batch --with-colons --fingerprint | grep -q "^fpr:::::::::${CORRETTO_SIGNER_FINGERPRINT}:"; \
+	gpg --batch --verify "${file}.sig" "${file}"; \
+	mkdir -p /opt/jdk; \
+	tar -xzf "${file}" -C /opt/jdk --strip-components=1; \
+	rm -rf "${GNUPGHOME}" "${file}" "${file}.sig" corretto.key
 
 WORKDIR /build
 COPY pom.xml ./
