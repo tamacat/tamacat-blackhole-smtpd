@@ -19,7 +19,7 @@ COPY src ./src
 # Tests run in CI (mvn verify) before the image build; skip them here.
 RUN --mount=type=cache,target=/root/.m2 mvn -B -q package -DskipTests
 
-FROM amazoncorretto:25-alpine3.24
+FROM amazoncorretto:27-alpine3.24
 
 # apk upgrade picks up Alpine security fixes and, through the apk.corretto.aws
 # repository the image already has, a new Corretto release before the image
