@@ -1,10 +1,34 @@
 # tamacat-blackhole-smtpd
 
-Blackhole SMTP server written in Java
+Blackhole SMTP server written in Java: a stand-in mail server for
+applications that need "the mail was sent" to succeed.
   * Emails cannot be sent.
   * Emails cannot be stored on disk or memory.
   * Emails can write logs only.
   * No external libraries: the server uses `java.base` only (Java 25).
+
+## Always a success reply
+
+Every command gets a success reply, so the sending application never sees an
+SMTP error:
+
+* Commands in any order (RCPT or DATA without MAIL, DATA without RCPT, a
+  second MAIL), syntax errors, unknown commands and over-long lines are all
+  answered `250` (`354` for DATA).
+* No message size limit (`SIZE` is not advertised) and no recipient limit.
+* `AUTH PLAIN` / `AUTH LOGIN` (and any other mechanism) accept any user and
+  password. Credentials are never logged, not even with `LOG_LEVEL=DEBUG`.
+* Logging is best effort: if a header cannot be parsed or a log line cannot
+  be written, the message is still answered `250`, and nothing that goes wrong
+  in the server ends the process.
+
+What is still not a success, because it cannot be:
+
+* `STARTTLS` gets `454` (TLS is not supported). Clients send it only when
+  they are configured to require TLS; configure them not to.
+* A session ends with `421 4.4.2` after `IDLE_TIMEOUT` without input or
+  `SESSION_TIMEOUT` in total. Clients reconnect.
+* With `MAX_CONNECTIONS_PER_IP` set, connections over that limit get `421`.
 
 ## Log format
 
@@ -12,32 +36,48 @@ One line per event on stdout (logfmt style, UTF-8). Each accepted message is
 logged as a `mail` event; the message body is discarded.
 
 ```
-2026-10-03T03:00:00.123Z INFO  start version=2.0 java=25.0.4.1+1-LTS address=0.0.0.0 port=25 hostname=smtpd max-message-size=10485760 max-connections=100
+2026-10-03T03:00:00.123Z INFO  start version=2.0 java=25.0.4.1+1-LTS address=0.0.0.0 port=25 hostname=smtpd max-connections=100 max-connections-per-ip=0 idle-timeout=300 session-timeout=600
 2026-10-03T03:00:05.456Z INFO  mail id=3f2a9c1e.1 remote=172.17.0.1:50412 helo=client.example from=from@example.com to=to@example.com size=342 subject="テスト mail" message-id=<1@example.com>
 ```
 
 MIME encoded-word Subjects (`=?ISO-2022-JP?B?...?=` etc.) are decoded. Values
 with spaces or control characters are quoted and escaped, so CR/LF in a header
-cannot forge log lines. `LOG_LEVEL=DEBUG` also logs connections and every SMTP
-command.
+cannot forge log lines. A message with more than `MAX_RECIPIENTS` recipients
+logs the first ones and `to-omitted=<count>`. `LOG_LEVEL=DEBUG` also logs
+connections and every SMTP command.
 
 ## Configuration
 
-Environment variables (or `-D` system properties of the same name):
+Environment variables (or `-D` system properties of the same name). A value
+that is not a number or is out of range is replaced by its default (with a
+`config` warning in the log), so a typo does not keep the server from
+starting.
 
 | Name               | Default        | Description                                |
 |--------------------|----------------|--------------------------------------------|
 | `BIND_ADDRESS`     | `0.0.0.0`      | Listen address                             |
 | `BIND_PORT`        | `25`           | Listen port (the first argument overrides) |
 | `SMTP_HOSTNAME`    | local hostname | Host name in the 220 / 250 replies         |
-| `MAX_MESSAGE_SIZE` | `10485760`     | Bytes; larger messages are rejected (552)  |
-| `MAX_RECIPIENTS`   | `100`          | RCPT TO per message                        |
-| `MAX_CONNECTIONS`  | `100`          | Concurrent sessions                        |
-| `IDLE_TIMEOUT`     | `300`          | Seconds without input before disconnect    |
+| `MAX_RECIPIENTS`   | `100`          | Recipients logged per message; more are accepted and counted |
+| `MAX_CONNECTIONS`  | `100`          | Concurrent sessions; further connections wait until one ends |
+| `MAX_CONNECTIONS_PER_IP` | `0`      | Concurrent sessions from one address, `0` = no limit |
+| `IDLE_TIMEOUT`     | `300`          | Seconds without input before disconnect, `0` = no limit |
+| `SESSION_TIMEOUT`  | `600`          | Seconds a session may last in total, even while the client keeps sending, `0` = no limit |
 | `LOG_LEVEL`        | `INFO`         | `DEBUG` / `INFO` / `WARN` / `ERROR`        |
 
-Supported commands: EHLO, HELO, MAIL, RCPT, DATA, RSET, NOOP, VRFY, HELP, QUIT
-(STARTTLS / AUTH are not supported).
+`SESSION_TIMEOUT` keeps a client that sends very slowly from holding a session
+forever. `MAX_CONNECTIONS_PER_IP` also stops one client from taking every
+session, but it is off by default because it refuses connections: behind NAT
+or a published container port all clients may share one address (for example
+the container network's gateway when they connect from the Docker / Podman
+host).
+
+This is a plain-text SMTP server that accepts any message and any
+credentials, and its log holds addresses and subjects. Keep it on a test or
+internal network; do not expose port 25 to the Internet.
+
+Supported commands: EHLO, HELO, MAIL, RCPT, DATA, AUTH, RSET, NOOP, VRFY,
+HELP, QUIT (STARTTLS is not supported).
 
 ## How to run tamacat-blackhole-smtpd in Docker
 

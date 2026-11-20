@@ -41,10 +41,19 @@ public final class Log {
 	private static final PrintStream STDOUT =
 			new PrintStream(new FileOutputStream(FileDescriptor.out), true, StandardCharsets.UTF_8);
 
-	static volatile Level level = Level.valueOf(Config.value("LOG_LEVEL", "INFO").toUpperCase(Locale.ROOT));
+	static volatile Level level = level(Config.value("LOG_LEVEL", "INFO"));
 	static volatile Consumer<String> sink = STDOUT::println;
 
 	private Log() {
+	}
+
+	/** An unknown name falls back to INFO instead of keeping the server from starting. */
+	static Level level(String name) {
+		try {
+			return Level.valueOf(name.trim().toUpperCase(Locale.ROOT));
+		} catch (IllegalArgumentException e) {
+			return Level.INFO;
+		}
 	}
 
 	public static boolean isDebugEnabled() {
@@ -67,11 +76,23 @@ public final class Log {
 		log(Level.ERROR, event, keyValues);
 	}
 
-	/** @param keyValues alternating keys and values; pairs with a null value are omitted. */
+	/**
+	 * Logging is best effort: a failure here is dropped, never passed on to
+	 * the caller, so it cannot end a session or the server.
+	 * @param keyValues alternating keys and values; pairs with a null value are omitted.
+	 */
 	static void log(Level lv, String event, Object... keyValues) {
 		if (lv.compareTo(level) < 0) {
 			return;
 		}
+		try {
+			sink.accept(format(lv, event, keyValues));
+		} catch (RuntimeException e) {
+			// nowhere left to report it
+		}
+	}
+
+	private static String format(Level lv, String event, Object... keyValues) {
 		StringBuilder sb = new StringBuilder(128)
 				.append(Instant.now().truncatedTo(ChronoUnit.MILLIS))
 				.append(' ').append(String.format("%-5s", lv))
@@ -82,7 +103,7 @@ public final class Log {
 				appendValue(sb, String.valueOf(keyValues[i + 1]));
 			}
 		}
-		sink.accept(sb.toString());
+		return sb.toString();
 	}
 
 	static void appendValue(StringBuilder sb, String value) {

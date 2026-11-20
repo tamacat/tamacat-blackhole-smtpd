@@ -32,8 +32,13 @@ import java.util.Locale;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * One SMTP connection (RFC 5321 subset). Every message is accepted and
- * discarded; only the envelope and a few header fields are logged.
+ * One SMTP connection (RFC 5321 subset). This is a stand-in for a real mail
+ * server, so every command gets a success reply, whatever the client sends
+ * and in whatever order: any AUTH is accepted, nothing is too large, and a
+ * failure inside the server (even in logging) never turns into an error
+ * reply. Messages are discarded; only the envelope and a few header fields
+ * are logged. The connection itself still ends on the idle and session
+ * timeouts.
  */
 final class SmtpSession implements Runnable {
 
@@ -45,7 +50,9 @@ final class SmtpSession implements Runnable {
 	private static final int MAX_DATA_LINE = 8192;
 	/** Header bytes kept for logging; the body is never stored. */
 	private static final int MAX_HEADER_BYTES = 64 * 1024;
-	private static final int MAX_ERRORS = 10;
+	private static final int LINGER_MILLIS = 1000;
+	private static final int MAX_LINGER_BYTES = 1024 * 1024;
+	private static final String OK = "250 2.0.0 Ok";
 
 	private final Socket socket;
 	private final Config config;
@@ -57,9 +64,10 @@ final class SmtpSession implements Runnable {
 
 	private String helo;
 	private String mailFrom;
+	/** Logged recipients, at most {@link Config#maxRecipients()}; the rest are only counted. */
 	private final List<String> recipients = new ArrayList<>();
+	private int omittedRecipients;
 	private int messageCount;
-	private int errors;
 
 	SmtpSession(Socket socket, Config config) {
 		this.socket = socket;
@@ -72,34 +80,20 @@ final class SmtpSession implements Runnable {
 	@Override
 	public void run() {
 		Log.debug("connect", "session", id, "remote", remote);
+		// The timeout handlers reply before the socket is closed, so they are
+		// inside the try-with-resources (its own catch runs after the close).
 		try (socket) {
-			socket.setSoTimeout(config.idleTimeoutSeconds() * 1000);
-			in = new BufferedInputStream(socket.getInputStream());
-			out = new BufferedOutputStream(socket.getOutputStream());
-			reply("220 " + config.hostname() + " ESMTP " + SOFTWARE);
-			ByteArrayOutputStream line = new ByteArrayOutputStream(256);
-			while (true) {
-				line.reset();
-				long length = readLine(line, MAX_COMMAND_LINE);
-				if (length < 0) {
-					break;
-				}
-				if (length > MAX_COMMAND_LINE) {
-					error("500 5.5.6 Line too long");
-				} else if (!command(line.toString(StandardCharsets.UTF_8))) {
-					break;
-				}
-				if (errors >= MAX_ERRORS) {
-					reply("421 4.7.0 Too many errors, closing connection");
-					break;
-				}
-			}
-		} catch (SocketTimeoutException e) {
-			Log.debug("timeout", "session", id, "remote", remote);
 			try {
+				in = new BufferedInputStream(new DeadlineInputStream(socket, config));
+				out = new BufferedOutputStream(socket.getOutputStream());
+				session();
+			} catch (SessionExpiredException e) {
+				Log.debug("session-timeout", "session", id, "remote", remote);
+				reply("421 4.4.2 " + config.hostname() + " Session time limit exceeded, closing connection");
+				lingeringClose();
+			} catch (SocketTimeoutException e) {
+				Log.debug("timeout", "session", id, "remote", remote);
 				reply("421 4.4.2 " + config.hostname() + " Idle timeout, closing connection");
-			} catch (IOException ignore) {
-				// connection is being dropped anyway
 			}
 		} catch (IOException e) {
 			Log.debug("io-error", "session", id, "remote", remote, "error", e.toString());
@@ -109,110 +103,138 @@ final class SmtpSession implements Runnable {
 		Log.debug("disconnect", "session", id, "remote", remote, "messages", messageCount);
 	}
 
+	private void session() throws IOException {
+		reply("220 " + config.hostname() + " ESMTP " + SOFTWARE);
+		ByteArrayOutputStream line = new ByteArrayOutputStream(256);
+		while (true) {
+			line.reset();
+			// an over-long line is handled truncated, like any other command
+			if (readLine(line, MAX_COMMAND_LINE) < 0) {
+				return;
+			}
+			try {
+				if (!command(line.toString(StandardCharsets.UTF_8))) {
+					return;
+				}
+			} catch (RuntimeException e) {
+				// a bug in the server must not fail the client
+				Log.error("command-error", "session", id, "remote", remote, "error", e.toString());
+				reply(OK);
+			}
+		}
+	}
+
+	/**
+	 * The client may still be sending when the session is cut off. Closing a
+	 * socket with unread input sends a TCP RST, which can make the client drop
+	 * the 421 reply, so half-close and discard input for a short, bounded time.
+	 */
+	private void lingeringClose() throws IOException {
+		socket.shutdownOutput();
+		socket.setSoTimeout(LINGER_MILLIS);
+		InputStream raw = socket.getInputStream();
+		byte[] buf = new byte[8192];
+		long end = System.nanoTime() + LINGER_MILLIS * 1_000_000L;
+		long total = 0;
+		int n;
+		while (total < MAX_LINGER_BYTES && System.nanoTime() < end && (n = raw.read(buf)) >= 0) {
+			total += n;
+		}
+	}
+
 	/** @return false to close the connection */
 	private boolean command(String line) throws IOException {
-		Log.debug("command", "session", id, "line", line);
 		int sp = line.indexOf(' ');
 		String verb = (sp < 0 ? line : line.substring(0, sp)).toUpperCase(Locale.ROOT);
 		String arg = sp < 0 ? "" : line.substring(sp + 1).trim();
+		if (Log.isDebugEnabled()) {
+			// never log credentials (AUTH PLAIN <base64>)
+			Log.debug("command", "session", id, "line",
+					verb.equals("AUTH") ? "AUTH " + arg.split("\\s+", 2)[0] + " ..." : line);
+		}
 		switch (verb) {
-			case "EHLO" -> ehlo(arg);
-			case "HELO" -> helo(arg);
-			case "MAIL" -> mail(arg);
-			case "RCPT" -> rcpt(arg);
+			case "EHLO" -> {
+				helo = arg;
+				resetTransaction();
+				reply("250-" + config.hostname() + " Hello " + arg,
+						"250-8BITMIME",
+						"250-SMTPUTF8",
+						"250-AUTH PLAIN LOGIN",
+						"250-ENHANCEDSTATUSCODES",
+						"250 PIPELINING");
+			}
+			case "HELO" -> {
+				helo = arg;
+				resetTransaction();
+				reply("250 " + config.hostname());
+			}
+			case "MAIL" -> {
+				resetTransaction(); // a nested MAIL starts over
+				mailFrom = address(arg, "FROM:");
+				reply("250 2.1.0 Ok");
+			}
+			case "RCPT" -> {
+				if (recipients.size() < config.maxRecipients()) {
+					recipients.add(address(arg, "TO:"));
+				} else {
+					omittedRecipients++;
+				}
+				reply("250 2.1.5 Ok");
+			}
 			case "DATA" -> data();
+			case "AUTH" -> auth(arg);
 			case "RSET" -> {
 				resetTransaction();
-				reply("250 2.0.0 Ok");
+				reply(OK);
 			}
-			case "NOOP" -> reply("250 2.0.0 Ok");
 			case "VRFY" -> reply("252 2.5.2 Cannot VRFY user, but will accept message");
-			case "HELP" -> reply("214 2.0.0 Commands: EHLO HELO MAIL RCPT DATA RSET NOOP VRFY HELP QUIT");
+			case "HELP" -> reply("214 2.0.0 Commands: EHLO HELO MAIL RCPT DATA AUTH RSET NOOP VRFY HELP QUIT");
+			// The one refusal: a 220 here would make the client start a TLS
+			// handshake that cannot succeed. STARTTLS is not advertised, so
+			// only a client that insists on TLS sends it.
+			case "STARTTLS" -> reply("454 4.7.0 TLS not available");
 			case "QUIT" -> {
 				reply("221 2.0.0 " + config.hostname() + " Bye");
 				return false;
 			}
-			case "" -> error("500 5.5.2 Error: bad syntax");
-			default -> error("502 5.5.2 Error: command not implemented");
+			default -> reply(OK); // NOOP, empty lines and anything unknown
 		}
 		return true;
 	}
 
-	private void ehlo(String arg) throws IOException {
-		if (arg.isEmpty()) {
-			error("501 5.5.4 Syntax: EHLO hostname");
-			return;
-		}
-		helo = arg;
-		resetTransaction();
-		reply("250-" + config.hostname() + " Hello " + arg,
-				"250-SIZE " + config.maxMessageSize(),
-				"250-8BITMIME",
-				"250-SMTPUTF8",
-				"250-ENHANCEDSTATUSCODES",
-				"250 PIPELINING");
-	}
-
-	private void helo(String arg) throws IOException {
-		if (arg.isEmpty()) {
-			error("501 5.5.4 Syntax: HELO hostname");
-			return;
-		}
-		helo = arg;
-		resetTransaction();
-		reply("250 " + config.hostname());
-	}
-
-	private void mail(String arg) throws IOException {
-		if (mailFrom != null) {
-			error("503 5.5.1 Error: nested MAIL command");
-			return;
-		}
-		String[] path = parsePath(arg, "FROM:");
-		if (path == null) {
-			error("501 5.5.4 Syntax: MAIL FROM:<address>");
-			return;
-		}
-		for (String param : path[1].split("\\s+")) {
-			if (param.regionMatches(true, 0, "SIZE=", 0, 5)) {
-				try {
-					if (Long.parseLong(param.substring(5)) > config.maxMessageSize()) {
-						reply("552 5.3.4 Message size exceeds fixed limit");
-						return;
-					}
-				} catch (NumberFormatException e) {
-					error("501 5.5.4 Bad SIZE parameter");
-					return;
-				}
+	/** Accepts any credentials; they are read and discarded, never logged. */
+	private void auth(String arg) throws IOException {
+		String[] parts = arg.split("\\s+", 2);
+		String mechanism = parts[0].toUpperCase(Locale.ROOT);
+		boolean initialResponse = parts.length > 1 && !parts[1].isEmpty();
+		if (mechanism.equals("LOGIN")) {
+			if (!initialResponse) {
+				reply("334 VXNlcm5hbWU6"); // "Username:"
+				skipLine();
 			}
+			reply("334 UGFzc3dvcmQ6"); // "Password:"
+			skipLine();
+		} else if (mechanism.equals("PLAIN") && !initialResponse) {
+			reply("334 ");
+			skipLine();
 		}
-		mailFrom = path[0];
-		reply("250 2.1.0 Ok");
+		Log.debug("auth", "session", id, "remote", remote, "mechanism", mechanism);
+		reply("235 2.7.0 Authentication successful");
 	}
 
-	private void rcpt(String arg) throws IOException {
-		if (mailFrom == null) {
-			error("503 5.5.1 Error: need MAIL command");
-			return;
+	private void skipLine() throws IOException {
+		if (readLine(new ByteArrayOutputStream(256), MAX_COMMAND_LINE) < 0) {
+			throw new EOFException("connection closed in AUTH");
 		}
-		String[] path = parsePath(arg, "TO:");
-		if (path == null || path[0].isEmpty()) {
-			error("501 5.5.4 Syntax: RCPT TO:<address>");
-			return;
-		}
-		if (recipients.size() >= config.maxRecipients()) {
-			reply("452 4.5.3 Error: too many recipients");
-			return;
-		}
-		recipients.add(path[0]);
-		reply("250 2.1.5 Ok");
+	}
+
+	/** The address of {@code FROM:<addr>} / {@code TO:<addr>}, or the raw argument if it does not parse. */
+	private static String address(String arg, String prefix) {
+		String[] path = parsePath(arg, prefix);
+		return path == null ? arg : path[0];
 	}
 
 	private void data() throws IOException {
-		if (recipients.isEmpty()) {
-			error("503 5.5.1 Error: need RCPT command");
-			return;
-		}
 		reply("354 End data with <CR><LF>.<CR><LF>");
 
 		ByteArrayOutputStream header = new ByteArrayOutputStream(1024);
@@ -246,11 +268,7 @@ final class SmtpSession implements Runnable {
 		}
 
 		String messageId = id + "." + (++messageCount);
-		if (size > config.maxMessageSize()) {
-			Log.warn("reject", "id", messageId, "remote", remote, "from", mailFrom,
-					"to", String.join(",", recipients), "size", size, "reason", "message too large");
-			reply("552 5.3.4 Message size exceeds fixed limit");
-		} else {
+		try {
 			MessageHeaders headers = new MessageHeaders(header.toString(StandardCharsets.UTF_8));
 			Log.info("mail",
 					"id", messageId,
@@ -258,11 +276,14 @@ final class SmtpSession implements Runnable {
 					"helo", helo,
 					"from", mailFrom,
 					"to", String.join(",", recipients),
+					"to-omitted", omittedRecipients > 0 ? omittedRecipients : null,
 					"size", size,
 					"subject", headers.get("Subject"),
 					"message-id", headers.get("Message-ID"));
-			reply("250 2.0.0 Ok: queued as " + messageId);
+		} catch (RuntimeException e) {
+			Log.error("log-error", "id", messageId, "remote", remote, "error", e.toString());
 		}
+		reply("250 2.0.0 Ok: queued as " + messageId);
 		resetTransaction();
 	}
 
@@ -294,11 +315,7 @@ final class SmtpSession implements Runnable {
 	private void resetTransaction() {
 		mailFrom = null;
 		recipients.clear();
-	}
-
-	private void error(String response) throws IOException {
-		errors++;
-		reply(response);
+		omittedRecipients = 0;
 	}
 
 	private void reply(String... lines) throws IOException {
@@ -338,5 +355,68 @@ final class SmtpSession implements Runnable {
 			}
 		}
 		return -1;
+	}
+
+	/** Thrown when the session has used up {@link Config#sessionTimeoutSeconds()}. */
+	static final class SessionExpiredException extends SocketTimeoutException {
+		private static final long serialVersionUID = 1L;
+
+		SessionExpiredException() {
+			super("session time limit exceeded");
+		}
+	}
+
+	/**
+	 * Socket input that enforces both timeouts: each read may wait up to the
+	 * idle timeout, but never past the end of the session. Checking on every
+	 * read (BufferedInputStream refills in chunks) also stops a client that
+	 * keeps a session alive by trickling bytes or streaming endless DATA.
+	 */
+	static final class DeadlineInputStream extends InputStream {
+		private final Socket socket;
+		private final InputStream in;
+		private final long idleMillis;
+		private final long deadline; // System.nanoTime(), or 0 = no limit
+
+		DeadlineInputStream(Socket socket, Config config) throws IOException {
+			this.socket = socket;
+			this.in = socket.getInputStream();
+			this.idleMillis = config.idleTimeoutSeconds() * 1000L;
+			this.deadline = config.sessionTimeoutSeconds() > 0
+					? System.nanoTime() + config.sessionTimeoutSeconds() * 1_000_000_000L
+					: 0;
+		}
+
+		@Override
+		public int read() throws IOException {
+			byte[] b = new byte[1];
+			return read(b, 0, 1) < 0 ? -1 : b[0] & 0xff;
+		}
+
+		@Override
+		public int read(byte[] b, int off, int len) throws IOException {
+			long timeout = idleMillis;
+			if (deadline != 0) {
+				long remaining = (deadline - System.nanoTime()) / 1_000_000;
+				if (remaining <= 0) {
+					throw new SessionExpiredException();
+				}
+				timeout = timeout <= 0 ? remaining : Math.min(timeout, remaining);
+			}
+			socket.setSoTimeout((int) Math.min(timeout, Integer.MAX_VALUE));
+			try {
+				return in.read(b, off, len);
+			} catch (SocketTimeoutException e) {
+				if (deadline != 0 && deadline - System.nanoTime() <= 0) {
+					throw new SessionExpiredException();
+				}
+				throw e;
+			}
+		}
+
+		@Override
+		public int available() throws IOException {
+			return in.available();
+		}
 	}
 }
