@@ -61,6 +61,15 @@ RUN set -eu; \
 	apk del --no-cache .setcap; \
 	echo "/lib:/usr/local/lib:/usr/lib:${jdk}/lib:${jdk}/lib/server" > "/etc/ld-musl-$(uname -m).path"
 
+# Remove packages the server does not use, last because apk removes itself.
+# OpenSSL (libssl3 / libcrypto3) is only there for apk and busybox's
+# ssl_client; Java has its own TLS and its own cacerts, and no openssl command
+# is installed. musl-utils (ldd, getconf, ...) and scanelf are build helpers.
+# apk keeps the package database up to date, so scanners still see exactly
+# what is installed (including amazon-corretto-25).
+RUN apk del --no-cache apk-tools musl-utils \
+	&& test ! -e /usr/lib/libssl.so.3 && test ! -e /usr/lib/libcrypto.so.3
+
 COPY --from=build /build/target/tamacat-blackhole-smtpd.jar /opt/tamacat-blackhole-smtpd/tamacat-blackhole-smtpd.jar
 
 ENV BIND_PORT=25
