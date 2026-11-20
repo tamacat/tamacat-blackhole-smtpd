@@ -94,6 +94,14 @@ cached layer.
 docker build -t tamacat/tamacat-blackhole-smtpd .
 ```
 
+Packages the server does not use are removed at the end of the build:
+`apk-tools` (with `libapk`, `ca-certificates-bundle`), OpenSSL
+(`libssl3`, `libcrypto3`, `ssl_client`) and `musl-utils` (with `scanelf`).
+Java uses its own TLS implementation and `cacerts`, and no `openssl` command
+is installed. apk removes them itself, so the package database stays
+accurate for vulnerability scanners. The image therefore has no package
+manager; extend it from an earlier build stage if you need one.
+
 The roots of the compromised eMudhra CAs (CVE-2026-91403, CVE-2026-114820,
 https://openjdk.org/emudhra) are removed from the runtime's `cacerts`.
 
