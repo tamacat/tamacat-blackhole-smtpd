@@ -15,6 +15,13 @@ updates:
       # pinned on purpose (pom.xml release 25); patched images of the same tag
       # are picked up by the weekly no-cache rebuild in ci-release.yml.
       - dependency-name: maven
+      # Stay on the Java LTS line (25). Dependabot reads the tag's leading
+      # number as the version and proposes non-LTS releases such as
+      # 27-alpine3.24. Move to the next LTS (29) by hand, together with
+      # maven.compiler.release in pom.xml. Patched builds of the 25 tag are
+      # picked up by the weekly rebuild and `apk upgrade` in ci-release.yml.
+      - dependency-name: amazoncorretto
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: maven
     directory: /
     schedule:
