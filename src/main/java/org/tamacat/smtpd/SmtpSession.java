@@ -396,18 +396,25 @@ final class SmtpSession implements Runnable {
 		@Override
 		public int read(byte[] b, int off, int len) throws IOException {
 			long timeout = idleMillis;
+			// Which limit ends this wait is decided here, not by reading the
+			// clock after the timeout: the socket timeout has millisecond
+			// resolution and may fire just before the deadline.
+			boolean sessionLimited = false;
 			if (deadline != 0) {
 				long remaining = (deadline - System.nanoTime()) / 1_000_000;
 				if (remaining <= 0) {
 					throw new SessionExpiredException();
 				}
-				timeout = timeout <= 0 ? remaining : Math.min(timeout, remaining);
+				if (timeout <= 0 || remaining < timeout) {
+					timeout = remaining;
+					sessionLimited = true;
+				}
 			}
 			socket.setSoTimeout((int) Math.min(timeout, Integer.MAX_VALUE));
 			try {
 				return in.read(b, off, len);
 			} catch (SocketTimeoutException e) {
-				if (deadline != 0 && deadline - System.nanoTime() <= 0) {
+				if (sessionLimited) {
 					throw new SessionExpiredException();
 				}
 				throw e;
